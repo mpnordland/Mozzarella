@@ -1,0 +1,13 @@
+import xcb
+from xcb import xproto
+from xpybutils import event, ewmh, icccm, keybind, mousebind
+import os
+
+Event = event.Event
+
+class Manager()
+    def __init__ (self) :
+    self.conn = xcb.connect()
+    self.root = conn.get_setup().roots[0].root
+    mask = xcb.xproto.EventMask.SubstructureNotify | xcb.xproto.EventMask.SubstructureRedirect
+    conn.core.ChangeWindowAttributes(self.root, xcb.xproto.CW.EventMask, mask)

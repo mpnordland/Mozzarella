@@ -1,0 +1,79 @@
+class Pane():
+    def __init__(self, x, y, width, height, windows):
+        self.x =x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.windows = windows
+    def reconfigure(self):
+        win_num = len(self.windows)
+        w = self.width/win_num  
+        print w
+        h = self.height
+        x = self.x
+        y = self.y
+        for win in self.windows:
+            win.configure(x=x, y=y, width=w, height=h, border_width=1)
+            if x < self.width:
+                x = x + w
+            
+    
+class Grid():
+    def __init__(self, root):
+        self.windows = []
+        self.panes = []
+        self.screen = root.get_geometry()
+        
+    def remove_window(self, window):
+        if window in self.windows:
+            self.windows.remove(window)
+        print self.panes
+        self.update_panes()
+        
+    def insert_window(self, window, pos=0):
+        self.windows.insert(0, window)
+        self.update_panes()
+    
+        
+    def update_panes(self):
+        self.panes =[]
+        win_num = len(self.windows)
+        print "we have this many windows: ", win_num
+        x = 0
+        y = 0
+        w = self.screen.width
+        h = self.screen.height
+        
+        if win_num == 1:
+            pane = Pane(x, y, w, h, self.windows)
+            self.panes.append(pane)
+      
+        elif win_num == 2:
+            w = w/2
+            for win in self.windows: 
+               pane = Pane(x, y, w, h, [win])
+               self.panes.append(pane)
+               x = x + w
+               
+               
+
+        elif win_num > 2:
+            print "more than 2 windows"
+            pane = 0
+            for win in self.windows:
+                if win == self.windows[0]:
+                    h=h - (h/3)
+                    print "main pane has y and h:", y, h
+                    pane = Pane(x,y, w, h, [win])
+                    self.panes.append(pane)
+                    y = h
+                    h = h/2
+                elif len(self.panes) == 1 :
+                    pane = Pane(x, y, w, h, [win])
+                    self.panes.append(pane)
+                else:
+                    pane.windows.append(win)
+        for pane in self.panes:
+            pane.reconfigure()
+            
+            
