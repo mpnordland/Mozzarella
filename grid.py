@@ -21,7 +21,7 @@ class Pane():
             err = win.configure(x, y, w, h)
             try:
                 err.check()
-            except xcb.xproto.BadWindow:
+            except xcb.xproto.BadWindow, xcb.xproto.BadMatch:
                 self.grid.remove_window(win)
                 break
                 

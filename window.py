@@ -111,10 +111,11 @@ class Window:
         self.conn.core.UnmapWindow(self.win)
         
     def focus(self):
+        print self.get_wm_name()
         if self.passive :
-            self.conn.core.SetInputFocus(xproto.InputFocus.PointerRoot, self.win)
+            self.conn.core.SetInputFocus(xproto.InputFocus.PointerRoot, self.win, xproto.Time.CurrentTime)
         elif self.local_active:
-            err = self.conn.core.SetInputFocusChecked(xproto.InputFocus.PointerRoot, self.win)
+            err = self.conn.core.SetInputFocusChecked(xproto.InputFocus.PointerRoot, self.win, xproto.Time.CurrentTime)
             err.check()
             packed = event.pack_client_message(self.win, "WM_PROTOCOLS", util.get_atom("WM_TAKE_FOCUS"), xproto.Time.CurrentTime)
             err = event.send_event_checked(self.win, 0,packed)

@@ -43,7 +43,7 @@ class Manager():
                                                     xproto.MapRequestEvent, 
                                                     xproto.ConfigureRequestEvent]
                                                     
-        eventmask = [xproto.EventMask.SubstructureRedirect | xproto.EventMask.SubstructureNotify | xproto.EventMask.EnterWindow]
+        eventmask = [xproto.EventMask.SubstructureRedirect | xproto.EventMask.SubstructureNotify]
         err = self.conn.core.ChangeWindowAttributesChecked(self.root.win, xproto.CW.EventMask, eventmask)
         err.check()
         
@@ -51,8 +51,9 @@ class Manager():
         
         
         
-        self.scan_windows()
+
         self.do_grids(self.screen)
+        self.scan_windows()
 
     def scan_windows(self):
         q = self.conn.core.QueryTree(self.root.win).reply()
@@ -67,6 +68,9 @@ class Manager():
             if win.fullscreen:
                 self.current_grid.set_fullscreen(win)
             self.windows.append(win)
+            eventmask = [xproto.EventMask.EnterWindow]
+            err = self.conn.core.ChangeWindowAttributesChecked(win.win, xproto.CW.EventMask, eventmask)
+            err.check()
             if not win.get_wm_transient_for():
                 if not win.strut:
                     self.current_grid.add_window(win)
@@ -141,8 +145,12 @@ class Manager():
             else:
                 self.screen.set_strut(win.strut)
                 self.current_grid.update_panes()
+
             event.connect('DestroyNotify', win.win, self.handle_unmap_event)
             event.connect('UnmapNotify', win.win, self.handle_unmap_event)
+        eventmask = [xproto.EventMask.EnterWindow]
+        err = self.conn.core.ChangeWindowAttributesChecked(win.win, xproto.CW.EventMask, eventmask)
+        err.check()
         event.connect('EnterNotify', win.win, self.handle_enter_event)
         
     
@@ -171,7 +179,8 @@ class Manager():
             return
         
         if win.get_wm_transient_for():
-            y = x = w = h = bw = 0
+            y = x = w = h = 0
+            bw = 2
             if evt.value_mask & cw.X:
                 x = evt.x
             if evt.value_mask & cw.Y:
@@ -199,7 +208,7 @@ class Manager():
         self.swap_win = None 
         
     def handle_enter_event(self, evt):
-        window =  self.get_window(evt.window)
+        window =  self.get_window(evt.event)
         if evt.mode != xproto.NotifyMode.Normal:
             return
         window.focus()
