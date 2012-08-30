@@ -42,13 +42,13 @@ class Grid():
             return
         if window in self.windows:
             self.windows.remove(window)
-        self.update_panes()
+        self.update()
         
     def add_window(self, window, pos=0):
         if not self.shown:
             return
         self.windows.insert(0,window)
-        self.update_panes()
+        self.update()
         
     def hide(self):
         '''
@@ -81,7 +81,7 @@ class Grid():
             self.windows.remove(win2)
             self.windows.insert(ind2, win1)
             self.windows.insert(ind1, win2)
-            self.update_panes()
+            self.update()
     
     def set_fullscreen(self, win):
         x = self.screen.real_x
@@ -92,11 +92,12 @@ class Grid():
         pane = Pane(self, x, y, w, h, [win])
         pane.reconfigure()
         self.fullscreen = True
+        
     def unset_fullscreen(self):
         self.fullscreen = False
         
         
-    def update_panes(self):
+    def update(self):
         if not self.shown:
             return
         if self.fullscreen:

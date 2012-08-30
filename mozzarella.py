@@ -1,19 +1,24 @@
 import xcb
 from xcb import xproto
-from xcb.xproto import ConfigWindow as cw
-import xpybutil
-from xpybutil import event, ewmh, icccm, mousebind, keybind, util, cursor
+from xpybutil import event, ewmh, icccm, mousebind, keybind, cursor, conn as Xconn
 import os, traceback, sys, time
 import grid
 from window import Window
 from screen import Screen
+from workspaces import Workspace
 import config
 from config import bind_launcher_keys, spawn
+import atom
+import logger
 
-
-Event = event.Event
+#This variable handles exiting from the mainloop()
+#Don't remove it
 exit = False
 
+cw = xproto.ConfigWindow
+
+class OtherWindowManagerRunning(Exception):
+    pass
 
 
 class Manager():
@@ -27,33 +32,38 @@ class Manager():
         self.swaps = 0
         self.default_cursor= cursor.create_font_cursor(cursor.FontCursor.LeftPtr)
         self.move_cursor = cursor.create_font_cursor(cursor.FontCursor.Fleur)
-        self.grids = []
-        self.current_grid = None
-        self.logger = config.logger
+        self.workspaces = []
+        self.current_workspace = None
+        self.current_workspace_num = 1
+        self.current_name = ''
+        self.logger = logger.DzenLogger(self)
+        #Proclaim to all just what we support
+        atoms = ["_NET_WM_STRUT_PARTIAL", "_NET_WM_STATE_FULLSCREEN", "_NET_NUMBER_OF_DESKTOPS",
+                            "_NET_CURRENT_DESKTOP", "_NET_ACTIVE_WINDOW"]
+        atom.build_atom_cache(atoms)
+        ewmh.set_supported(atom.atom_cache)
         
-        atomstrs = ["_NET_WM_STRUT_PARTIAL", "_NET_WM_STATE_FULLSCREEN", "_NET_NUMBER_OF_DESKTOPS",
-                            "_NET_CURRENT_DESKTOP"]
-        atoms = []
-        for atom in atomstrs:
-            atoms.append(util.get_atom(atom))
-
-        ewmh.set_supported(atoms)
-        
+        #this is a list of the events that we don't want/need to filter by window.
+        #Some such as MapRequest and ConfigureRequest we usually don't have a reference 
+        #for the window yet
         self.no_window_events = [xproto.MappingNotifyEvent, 
                                                     xproto.MapRequestEvent, 
                                                     xproto.ConfigureRequestEvent]
                                                     
+        # set substructure redirect on the root window.
         eventmask = [xproto.EventMask.SubstructureRedirect | xproto.EventMask.SubstructureNotify]
         err = self.conn.core.ChangeWindowAttributesChecked(self.root.win, xproto.CW.EventMask, eventmask)
-        err.check()
+        try:
+            err.check()
+        except xproto.BadAccess:
+            print "We can't grab window manager status!, is there something else running?"
+            raise OtherWindowManagerRunning
         
         self.conn.core.ChangeWindowAttributesChecked(self.root.win, xproto.CW.Cursor, [self.default_cursor])
         
-        
-        
-
-        self.do_grids(self.screen)
+        self.do_workspaces(self.screen)
         self.scan_windows()
+        self.logger.start()
 
     def scan_windows(self):
         q = self.conn.core.QueryTree(self.root.win).reply()
@@ -61,7 +71,7 @@ class Manager():
             win = Window(item, self.conn, self)
             attrs = win.get_attributes()
             state = win.get_wm_state()
-            if attrs and attrs.map_state == xproto.MapState.Unmapped or attrs.overide_redirect:
+            if attrs and attrs.map_state == xproto.MapState.Unmapped: #or attrs.overide_redirect:
                continue
             if state and state['state'] == icccm.State.Withdrawn:
                 continue
@@ -78,14 +88,14 @@ class Manager():
                     self.screen.set_strut(win.strut)
                 event.connect('DestroyNotify', win.win, self.handle_unmap_event)
                 event.connect('UnmapNotify', win.win, self.handle_unmap_event)
-                event.connect('EnterNotify', win.win, self.handle_enter_event)
+            event.connect('EnterNotify', win.win, self.handle_enter_event)
                 
-    def do_grids(self, screen):
-        for x in range(config.grids):
-            self.grids.append(grid.Grid(screen))
-        self.current_grid = self.grids[0]
-        self.current_grid.shown = True
-        ewmh.set_number_of_desktops(config.grids)
+    def do_workspaces(self, screen):
+        for x in range(config.workspaces):
+            self.workspaces.append(Workspace(screen))
+        self.current_workspace = self.workspaces[0]
+        self.current_workspace.shown = True
+        ewmh.set_number_of_desktops(config.workspaces)
         ewmh.set_current_desktop(0)
             
     def get_window(self, win):
@@ -112,22 +122,32 @@ class Manager():
         return None
         
     def grab_mouse(self):
+        '''
+        This method grabs a button and binds to press and realease events
+        '''
         mods, button = mousebind.parse_buttonstring(config.mouse_move_string)
         mousebind.grab_button(self.root.win, mods, button)
         event.connect('ButtonPress', self.root.win, self.handle_mouse_press)
         event.connect('ButtonRelease', self.root.win, self.handle_mouse_release)                
     
     def register_handlers(self):
+        '''
+        Adds handlers for no_window_events, binds workspace moving
+        keys and grabs the mouse actions we care about
+        '''
         print "Registering Handlers"
         event.connect('MapRequest', None, self.handle_map_event)
         event.connect('ConfigureRequest', None, self.handle_configure_event)
-        keybind.bind_global_key('KeyRelease', 'Mod4-Right', self.next_grid)
-        keybind.bind_global_key('KeyRelease', 'Mod4-Left', self.prev_grid)
+        keybind.bind_global_key('KeyRelease', 'Mod4-Right', self.next_workspace)
+        keybind.bind_global_key('KeyRelease', 'Mod4-Left', self.prev_workspace)
         self.grab_mouse()
 
     def handle_map_event(self, evt):
+        '''
+        window mapping operations occur here
+        '''
         win = Window(evt.window, self.conn, self)
-        print "mapping:", win
+
         state = win.get_wm_state()
         if state and state['state'] == icccm.State.Withdrawn:
             return
@@ -135,36 +155,36 @@ class Manager():
         
         self.windows.append(win)
         
-        if win.fullscreen:
-            self.current_grid.set_fullscreen(win)
-        
-        if not win.get_wm_transient_for():
-            if not win.strut:
-                self.current_grid.add_window(win)
-                self.logger.log( "adding window" + str(win))
-            else:
-                self.screen.set_strut(win.strut)
-                self.current_grid.update_panes()
-
-            event.connect('DestroyNotify', win.win, self.handle_unmap_event)
-            event.connect('UnmapNotify', win.win, self.handle_unmap_event)
+        self.current_workspace.add_window(win)
+        event.connect('DestroyNotify', win.win, self.handle_unmap_event)
+        event.connect('UnmapNotify', win.win, self.handle_unmap_event)
+        self.current_workspace.update_layout()
         eventmask = [xproto.EventMask.EnterWindow]
         err = self.conn.core.ChangeWindowAttributesChecked(win.win, xproto.CW.EventMask, eventmask)
         err.check()
         event.connect('EnterNotify', win.win, self.handle_enter_event)
+        pointer_pos = self.conn.core.QueryPointer(self.root.win).reply()
+        ifwin = self.get_window_by_pos(pointer_pos.root_x, pointer_pos.root_y)
+        if ifwin and win == ifwin:
+            win.focus()
         
     
     def handle_unmap_event(self, evt):
+        '''
+        This method handles both DestroyNotify and UnmapNotify
+        because they both seem to indicate the same thing:
+        We no longer need this window.
+        '''
         event.disconnect('DestroyNotify', evt.window)
         event.disconnect('UnmapNotify', evt.window)
         win = self.get_window(evt.window)
         if not win:
             return
         if not win.strut:
-            self.current_grid.remove_window(win)
+            self.current_workspace.remove_window(win)
         else:
             self.screen.remove_strut(win.strut)
-            self.current_grid.update_panes()
+            self.current_workspace.update_layout()
             #self.windows.remove(win)
         if win.fullscreen:
             self.current_grid.unset_fullscreen()
@@ -175,6 +195,7 @@ class Manager():
         Transient windows are floated, and others are not
         '''
         win = self.get_window(evt.window)
+        #if we don't have a window, we're stuck:
         if not win:
             return
         
@@ -191,91 +212,124 @@ class Manager():
                 w = evt.width
             if evt.value_mask & cw.BorderWidth:
                 bw = evt.border_width
+            bw = 2
             win.configure(x, y, w, h, bw)
         else:
-            self.current_grid.update_panes()
+            self.current_workspace.update_layout()
             
     def handle_mouse_press(self, evt):
+        '''
+        Mouse button presses are handled here.
+        Basically set the swap window to None, change the cursor, get the window to be swapped
+        and set swap_win to that
+        '''
         self.swap_win = None
         err = self.conn.core.ChangeWindowAttributesChecked(self.root.win, xproto.CW.Cursor, [self.move_cursor])
         dwin = self.get_window_by_pos(evt.root_x, evt.root_y)
         self.swap_win = dwin
          
     def handle_mouse_release(self, evt):
+        '''
+        Mouse button releases are handled here. we get the second window,
+        switch it with the first, revert the cursor back to normal, and set swap_win to None
+        '''
         owin = self.get_window_by_pos(evt.root_x, evt.root_y)
-        self.current_grid.switch_windows(self.swap_win, owin)
+        self.current_workspace.grid.switch_windows(self.swap_win, owin)
         err = self.conn.core.ChangeWindowAttributesChecked(self.root.win, xproto.CW.Cursor, [self.default_cursor])
         self.swap_win = None 
         
     def handle_enter_event(self, evt):
+        '''
+        This event is used for setting the focus based on where the mouse is.
+        Most of the work occurs in Window.focus()
+        '''
         window =  self.get_window(evt.event)
         if evt.mode != xproto.NotifyMode.Normal:
             return
         window.focus()
     
-    def next_grid(self):
-        grid_n = self.grids.index(self.current_grid) + 1
-        if grid_n > len(self.grids)-1:
-            grid_n = 0
-        self.logger.log("hiding grid:"+str(self.grids.index(self.current_grid)))
-        self.current_grid.hide()
-        self.current_grid = self.grids[grid_n]
-        self.logger.log( "showing grid:" + str(grid_n))
-        self.current_grid.show()
-        ewmh.set_current_desktop(grid_n)
+    def next_workspace(self):
+        '''
+        Part of Mozzarella's primative workspaces
+        this switches to the next grid
+        '''
+        work_n = self.workspaces.index(self.current_workspace) + 1
+        self.current_workspace_num = work_n
+        if work_n > len(self.workspaces)-1:
+            work_n = 0
+        self.current_workspace.hide()
+        self.current_workspace = self.workspaces[work_n]
+        self.current_workspace.show()
+        ewmh.set_current_desktop(work_n)
         
-    def prev_grid(self):
-        grid_p = self.grids.index(self.current_grid) - 1
-        self.logger.log("hiding grid:"+str(self.grids.index(self.current_grid)))
-        self.current_grid.hide()
-        self.current_grid = self.grids[grid_p]
-        self.logger.log( "showing grid:" + str(grid_p))
-        self.current_grid.show()
-        if grid_p < 0:
-            grid_p = len(self.grids)-1
-        ewmh.set_current_desktop(grid_p)
+    def prev_workspace(self):
+        '''
+        Part of Mozzarella's primative workspaces
+        this switches to the previous grid
+        '''
+        work_p = self.workspaces.index(self.current_workspace) - 1
+        self.current_workspace_num = work_p
+        self.current_workspace.hide()
+        self.current_workspace = self.workspaces[work_p]
+        self.current_workspace.show()
+        if work_p < 0:
+            work_p = len(self.workspaces)-1
+        ewmh.set_current_desktop(work_p)
     
     def no_window(self, evt):
+        '''
+        This method makes the event loop a little nicer to read, and shorter.
+        '''
         for event in self.no_window_events:
             if isinstance(evt, event):
                 return True
         return False
     
-    def remap(self):
+    def cleanup(self):
+        '''
+        clean up after each event to make sure we have only the windows visible on screen.
+        Otherwise, we start to have empty spaces in our tiling
+        '''
         for window in self.windows:
             try:
                 attrs = window.get_attributes()
                 state = window.get_wm_state()
                 if (state and state['state'] == icccm.State.Withdrawn) or (attrs and attrs.map_state == xproto.MapState.Unmapped):
                     if not window.strut:
-                        self.current_grid.remove_window(window)
+                        self.current_workspace.remove_window(window)
                     else:
                         self.screen.remove_strut(win.strut)
-                        self.update_panes()
+                        self.current_workspace.update_layout()
                     self.windows.remove(window)
             except xproto.BadWindow:
-                self.current_grid.remove_window(window)
+                self.current_workspace.remove_window(window)
                 self.windows.remove(window)
             except xproto.BadMatch, e:
                 self.logger.log( "BadMatch")
-        self.current_grid.update_panes()
+        self.current_workspace.update_layout()
+
+
 
 def quit():
+        '''
+        Allows using a keypress (release actually) to 
+        quit the window manager, and thus, usually, the X session
+        '''
         global exit
         exit = True
       
 def mainloop():
-    wm = Manager(xpybutil.conn)
-    wm.logger.log('Starting Mozzarella!')
+    wm = Manager(Xconn)
     wm.register_handlers()
-    wm.logger.log("Binding keys, Mod4-x to quit, Mod4-r to remap, whatever good that does")
     bind_launcher_keys()
+    #Should move these to Manager.register_handlers()
     keybind.bind_global_key('KeyRelease', 'Mod4-x', quit)
-    keybind.bind_global_key('KeyRelease', 'Mod4-r', wm.remap)
+    keybind.bind_global_key('KeyRelease', 'Mod4-r', wm.cleanup)
     try:
         while True:
             if exit:
                 break
+            #wm.logger.update()
             event.read()
             for e in event.queue():
                 w = None
@@ -291,13 +345,11 @@ def mainloop():
                 for cb in event.__callbacks.get(key, []):
                     cb(e)
                 wm.conn.flush()
-                wm.remap()
-                #wm.logger.repeat()
+                wm.cleanup()
     except xcb.Exception:
         traceback.print_exc()
         sys.exit(1)
 
 if __name__ == '__main__':
-    
     mainloop()
     print "Quitting Mozzarella"

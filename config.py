@@ -5,21 +5,20 @@ import logger
 #this sets the mouse combination to move windows around
 mouse_move_string = 'Mod4-3'
 
-#Mozzarella calls workspaces  grids. 
-#This sets how many grids you have
-grids=4
+#set how many workspaces you want here, there is no theoretical limit
+workspaces=3
 
 #This can be logger.Logger to simply print
 #statements, or logger.DzenLogger in order to have Mozzarella
 #output dzen formated text
-logger = logger.DzenLogger()
+#logger = logger.DzenLogger()
 
 def spawn(command):
-    global logger
+    #global logger
     '''
     Forks a command and disowns it.
     '''
-    logger.log("spawn"+ command[0])
+    #logger.log("spawn"+ command[0])
     if os.fork() != 0:
         return
 

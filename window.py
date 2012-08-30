@@ -1,6 +1,10 @@
 from xcb.xproto import ConfigWindow as cw
 import xcb.xproto as xproto
 from xpybutil import ewmh, icccm, util, event
+import atom
+
+atoms = ["_NET_WM_STATE_FULLSCREEN" , "WM_PROTOCOLS", "WM_TAKE_FOCUS"]
+atom.update_atom_cache(atoms)
 
 class Window:
     def __init__(self, window, conn, wm):
@@ -27,7 +31,7 @@ class Window:
         #are we a fullscreen window ?
         net_state = self.get_net_wm_state()
         self.fullscreen = False
-        if net_state and util.get_atom("_NET_WM_STATE_FULLSCREEN") in net_state:
+        if net_state and atom._NET_WM_STATE_FULLSCREEN in net_state:
             self.fullscreen = True
             
         #Define Default values for focus modals
@@ -44,7 +48,7 @@ class Window:
         take_focus = False
         if hints and hints['input']:
             input = True
-        if protos and util.get_atom("WM_TAKE_FOCUS") in protos:
+        if protos and atom.WM_TAKE_FOCUS in protos:
             take_focus = True
         if input and take_focus:
             print self.get_wm_name()
@@ -111,20 +115,22 @@ class Window:
         self.conn.core.UnmapWindow(self.win)
         
     def focus(self):
-        print self.get_wm_name()
-        if self.passive :
-            self.conn.core.SetInputFocus(xproto.InputFocus.PointerRoot, self.win, xproto.Time.CurrentTime)
-        elif self.local_active:
-            err = self.conn.core.SetInputFocusChecked(xproto.InputFocus.PointerRoot, self.win, xproto.Time.CurrentTime)
-            err.check()
-            packed = event.pack_client_message(self.win, "WM_PROTOCOLS", util.get_atom("WM_TAKE_FOCUS"), xproto.Time.CurrentTime)
-            err = event.send_event_checked(self.win, 0,packed)
-            err.check()
-        elif self.global_active:
-            packed = event.pack_client_message(self.win, "WM_PROTOCOLS", util.get_atom("WM_TAKE_FOCUS"), xproto.Time.CurrentTime)
-            err = event.send_event_checked(self.win, 0,packed)
-            err.check()
-        else:
+        try:
+            if self.passive :
+                self.conn.core.SetInputFocus(xproto.InputFocus.PointerRoot, self.win, xproto.Time.CurrentTime)
+            elif self.local_active:
+                err = self.conn.core.SetInputFocusChecked(xproto.InputFocus.PointerRoot, self.win, xproto.Time.CurrentTime)
+                err.check()
+                packed = event.pack_client_message(self.win, "WM_PROTOCOLS", atom.WM_TAKE_FOCUS, xproto.Time.CurrentTime)
+                err = event.send_event_checked(self.win, 0,packed)
+                err.check()
+            elif self.global_active:
+                packed = event.pack_client_message(self.win, "WM_PROTOCOLS", atom.WM_TAKE_FOCUS, xproto.Time.CurrentTime)
+                err = event.send_event_checked(self.win, 0,packed)
+                err.check()
+            else:
+                return
+        except xproto.BadMatch, xproto.BadWindow:
             return
-        
+        self.wm.current_name = self.get_wm_name()
         ewmh.set_active_window(self.win)
