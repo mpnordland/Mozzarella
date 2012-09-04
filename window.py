@@ -3,7 +3,7 @@ import xcb.xproto as xproto
 from xpybutil import ewmh, icccm, util, event
 import atom
 
-atoms = ["_NET_WM_STATE_FULLSCREEN" , "WM_PROTOCOLS", "WM_TAKE_FOCUS"]
+atoms = ["_NET_WM_STATE_FULLSCREEN" , "WM_PROTOCOLS", "WM_TAKE_FOCUS", "WM_DELETE_WINDOW","_NET_WM_WINDOW_TYPE_DOCK"]
 atom.update_atom_cache(atoms)
 
 class Window:
@@ -66,6 +66,13 @@ class Window:
             print "no_input"
             self.no_input = True
         
+        #what kind of a window are we?
+        self.type = self.get_wm_window_type()
+        if not self.type:
+            self.type = []
+    
+    def get_wm_window_type(self):
+        return ewmh.get_wm_window_type(self.win).reply()
         
     def get_wm_state(self):
         return icccm.get_wm_state(self.win).reply()
@@ -105,8 +112,11 @@ class Window:
         self.y = y
         self.w = w
         self.h = h
-        return self.conn.core.ConfigureWindowChecked(self.win, mask, values)
-    
+        values[1] = y +1
+        self.conn.core.ConfigureWindowChecked(self.win, mask, values)
+        values[1] = y
+        self.conn.core.ConfigureWindowChecked(self.win, mask, values)
+        
     def map(self):
         icccm.set_wm_state(self.win, icccm.State.Normal, 0)
         self.conn.core.MapWindow(self.win)
@@ -122,15 +132,26 @@ class Window:
                 err = self.conn.core.SetInputFocusChecked(xproto.InputFocus.PointerRoot, self.win, xproto.Time.CurrentTime)
                 err.check()
                 packed = event.pack_client_message(self.win, "WM_PROTOCOLS", atom.WM_TAKE_FOCUS, xproto.Time.CurrentTime)
-                err = event.send_event_checked(self.win, 0,packed)
-                err.check()
+                event.send_event(self.win, 0,packed)
             elif self.global_active:
                 packed = event.pack_client_message(self.win, "WM_PROTOCOLS", atom.WM_TAKE_FOCUS, xproto.Time.CurrentTime)
-                err = event.send_event_checked(self.win, 0,packed)
-                err.check()
+                event.send_event(self.win, 0,packed)
             else:
                 return
-        except xproto.BadMatch, xproto.BadWindow:
+        except (xproto.BadMatch, xproto.BadWindow):
             return
         self.wm.current_name = self.get_wm_name()
+        self.wm.current_win = self
         ewmh.set_active_window(self.win)
+    
+    def destroy(self):
+        #we need to handle WM_DELETE_window
+        try:
+            protos = self.get_wm_protocols()
+            if protos and atom.WM_DELETE_WINDOW in protos:
+                packed = event.pack_client_message(self.win, "WM_PROTOCOLS", atom.WM_DELETE_WINDOW, xproto.Time.CurrentTime)
+                event.send_event(self.win, 0,packed)
+            else:
+                self.conn.core.DestroyWindow(self.win)
+        except xproto.BadWindow:
+            return

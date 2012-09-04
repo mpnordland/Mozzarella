@@ -18,12 +18,7 @@ class Pane():
         x = self.x
         y = self.y
         for win in self.windows:
-            err = win.configure(x, y, w, h)
-            try:
-                err.check()
-            except xcb.xproto.BadWindow, xcb.xproto.BadMatch:
-                self.grid.remove_window(win)
-                break
+            win.configure(x, y, w, h)
                 
             if x < self.width:
                 x = x + w
@@ -46,6 +41,7 @@ class Grid():
         
     def add_window(self, window, pos=0):
         if not self.shown:
+            print self.shown
             return
         self.windows.insert(0,window)
         self.update()
@@ -133,7 +129,10 @@ class Grid():
                     #print "main pane has y and h:", y, h
                     pane = Pane(self, x,y, w, h, [win])
                     self.panes.append(pane)
-                    y = h
+                    if self.screen.v_strut:
+                        y=h+self.screen.y
+                    else:
+                        y = h
                     h = h/2
                 elif len(self.panes) == 1 :
                     pane = Pane(self, x, y, w, h, [win])

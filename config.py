@@ -6,7 +6,7 @@ import logger
 mouse_move_string = 'Mod4-3'
 
 #set how many workspaces you want here, there is no theoretical limit
-workspaces=3
+workspaces=4
 
 #This can be logger.Logger to simply print
 #statements, or logger.DzenLogger in order to have Mozzarella
@@ -57,6 +57,12 @@ def spawn(command):
             pass
         sys.exit(1)
 
+#you have to define a function to bind to a keypress. A more elegant,
+#or easier way to bind apps to keys would be nice, but then again,
+#functions are nice for doing more than just launching apps.
+#add your new function to bind_launcher_keys like this:
+#keybind.bind_global_key('KeyRelease', 'key combination', function)
+
 def bind_launcher_keys():
     keybind.bind_global_key('KeyRelease', 'Mod4-e', scite)
     keybind.bind_global_key('KeyRelease', 'Mod4-f', spacefm)
@@ -64,7 +70,8 @@ def bind_launcher_keys():
     keybind.bind_global_key('KeyRelease', 'Mod4-m', quodlibet)
     keybind.bind_global_key('KeyRelease', 'Mod4-b', blender)
     keybind.bind_global_key('KeyRelease', 'Mod4-Return', sakura)
-    
+    #keybind.bind_global_key('KeyRelease', 'Mod4-k', kill_window)
+    keybind.bind_global_key('KeyRelease', 'Mod4-space', dmenu)
 
 def scite():
     spawn(['/usr/bin/scite'])
@@ -78,3 +85,7 @@ def quodlibet():
     spawn(['/usr/bin/quodlibet'])
 def blender():
     spawn(['/usr/bin/blender'])
+def kill_window():
+    spawn(['/usr/bin/xkill'])
+def dmenu():
+    spawn(['/usr/bin/dmenu_run', "-nb", '#0088cc', "-nf", '#ffffff', "-fn", "DejaVu Sans:8"])

@@ -35,12 +35,13 @@ class Manager():
         self.workspaces = []
         self.current_workspace = None
         self.current_workspace_num = 1
-        self.current_name = ''
+        self.current_name = 'Desktop'
+        self.current_win = None
         self.logger = logger.DzenLogger(self)
         #Proclaim to all just what we support
         atoms = ["_NET_WM_STRUT_PARTIAL", "_NET_WM_STATE_FULLSCREEN", "_NET_NUMBER_OF_DESKTOPS",
                             "_NET_CURRENT_DESKTOP", "_NET_ACTIVE_WINDOW"]
-        atom.build_atom_cache(atoms)
+        atom.update_atom_cache(atoms)
         ewmh.set_supported(atom.atom_cache)
         
         #this is a list of the events that we don't want/need to filter by window.
@@ -83,7 +84,8 @@ class Manager():
             err.check()
             if not win.get_wm_transient_for():
                 if not win.strut:
-                    self.current_grid.add_window(win)
+                    if win.type and atom._NET_WM_WINDOW_TYPE_DOCK not in win.type :
+                        self.current_workspace.add_window(win)
                 else:
                     self.screen.set_strut(win.strut)
                 event.connect('DestroyNotify', win.win, self.handle_unmap_event)
@@ -140,6 +142,7 @@ class Manager():
         event.connect('ConfigureRequest', None, self.handle_configure_event)
         keybind.bind_global_key('KeyRelease', 'Mod4-Right', self.next_workspace)
         keybind.bind_global_key('KeyRelease', 'Mod4-Left', self.prev_workspace)
+        keybind.bind_global_key('KeyRelease',   'Mod4-k', self.destroy_window)
         self.grab_mouse()
 
     def handle_map_event(self, evt):
@@ -147,7 +150,7 @@ class Manager():
         window mapping operations occur here
         '''
         win = Window(evt.window, self.conn, self)
-
+        print win.get_wm_name()
         state = win.get_wm_state()
         if state and state['state'] == icccm.State.Withdrawn:
             return
@@ -158,15 +161,13 @@ class Manager():
         self.current_workspace.add_window(win)
         event.connect('DestroyNotify', win.win, self.handle_unmap_event)
         event.connect('UnmapNotify', win.win, self.handle_unmap_event)
-        self.current_workspace.update_layout()
         eventmask = [xproto.EventMask.EnterWindow]
-        err = self.conn.core.ChangeWindowAttributesChecked(win.win, xproto.CW.EventMask, eventmask)
-        err.check()
+        self.conn.core.ChangeWindowAttributes(win.win, xproto.CW.EventMask, eventmask)
         event.connect('EnterNotify', win.win, self.handle_enter_event)
         pointer_pos = self.conn.core.QueryPointer(self.root.win).reply()
         ifwin = self.get_window_by_pos(pointer_pos.root_x, pointer_pos.root_y)
-        if ifwin and win == ifwin:
-            win.focus()
+        if ifwin:
+            ifwin.focus()
         
     
     def handle_unmap_event(self, evt):
@@ -180,15 +181,10 @@ class Manager():
         win = self.get_window(evt.window)
         if not win:
             return
-        if not win.strut:
-            self.current_workspace.remove_window(win)
-        else:
-            self.screen.remove_strut(win.strut)
-            self.current_workspace.update_layout()
-            #self.windows.remove(win)
-        if win.fullscreen:
-            self.current_grid.unset_fullscreen()
-    
+
+        self.current_workspace.remove_window(win)
+        self.windows.remove(win)
+
     def handle_configure_event(self, evt):
         '''
         This is where ConfigureRequstEvents and ConfigureNotifyEvents get handled
@@ -198,24 +194,28 @@ class Manager():
         #if we don't have a window, we're stuck:
         if not win:
             return
-        
-        if win.get_wm_transient_for():
-            y = x = w = h = 0
-            bw = 2
-            if evt.value_mask & cw.X:
-                x = evt.x
-            if evt.value_mask & cw.Y:
-                y = evt.y
-            if evt.value_mask & cw.Height:
-                h = evt.height
-            if evt.value_mask & cw.Width:
-                w = evt.width
-            if evt.value_mask & cw.BorderWidth:
-                bw = evt.border_width
-            bw = 2
-            win.configure(x, y, w, h, bw)
-        else:
-            self.current_workspace.update_layout()
+        try:
+            print win.get_wm_name()
+            
+            if win.get_wm_transient_for():
+                y = x = w = h = 0
+                bw = 2
+                if evt.value_mask & cw.X:
+                    x = evt.x
+                if evt.value_mask & cw.Y:
+                    y = evt.y
+                if evt.value_mask & cw.Height:
+                    h = evt.height
+                if evt.value_mask & cw.Width:
+                    w = evt.width
+                if evt.value_mask & cw.BorderWidth:
+                    bw = evt.border_width
+                bw = 2
+                win.configure(x, y, w, h, bw)
+            else:
+                self.current_workspace.update_layout()
+        except (xproto.BadWindow, xproto.BadMatch):
+            return
             
     def handle_mouse_press(self, evt):
         '''
@@ -246,7 +246,8 @@ class Manager():
         window =  self.get_window(evt.event)
         if evt.mode != xproto.NotifyMode.Normal:
             return
-        window.focus()
+        if window:
+            window.focus()
     
     def next_workspace(self):
         '''
@@ -254,7 +255,9 @@ class Manager():
         this switches to the next grid
         '''
         work_n = self.workspaces.index(self.current_workspace) + 1
-        self.current_workspace_num = work_n
+        self.current_workspace_num += 1
+        if self.current_workspace_num > config.workspaces:
+            self.current_workspace_num = 1
         if work_n > len(self.workspaces)-1:
             work_n = 0
         self.current_workspace.hide()
@@ -268,13 +271,23 @@ class Manager():
         this switches to the previous grid
         '''
         work_p = self.workspaces.index(self.current_workspace) - 1
-        self.current_workspace_num = work_p
         self.current_workspace.hide()
         self.current_workspace = self.workspaces[work_p]
         self.current_workspace.show()
         if work_p < 0:
-            work_p = len(self.workspaces)-1
+            work_p = len(self.workspaces)
+        self.current_workspace_num -= 1
+        if self.current_workspace_num <= 0:
+            self.current_workspace_num = config.workspaces
+            
         ewmh.set_current_desktop(work_p)
+    
+    def destroy_window(self):
+        #will deleted the currently focused
+        #window
+        if self.current_win:
+            self.current_win.destroy()
+        
     
     def no_window(self, evt):
         '''
@@ -329,7 +342,6 @@ def mainloop():
         while True:
             if exit:
                 break
-            #wm.logger.update()
             event.read()
             for e in event.queue():
                 w = None
@@ -345,7 +357,6 @@ def mainloop():
                 for cb in event.__callbacks.get(key, []):
                     cb(e)
                 wm.conn.flush()
-                wm.cleanup()
     except xcb.Exception:
         traceback.print_exc()
         sys.exit(1)

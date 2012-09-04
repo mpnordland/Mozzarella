@@ -1,4 +1,5 @@
 import thread
+import dzen_time
 
 class Logger:
     def __init__(self, wm):
@@ -9,7 +10,7 @@ class Logger:
 
 class DzenLogger:
     def __init__(self, wm):
-        self.colors = {"fg": "#0088cc", "bg": "#ffffff"}
+        self.colors = {"fg": "#ffffff", "bg": "#0088cc"}
         self.text_f = ''
         self.wm = wm
         
@@ -22,10 +23,9 @@ class DzenLogger:
         return color_tag + text
     
     def update(self):
-        text_f = self.set_norm_colors("^p(_LEFT)")
-        
-        print text_f, 
-        print ' '.join(map(str,[self.wm.current_workspace_num, "^p(10)",self.wm.current_name]))
+        time = dzen_time.update()
+        print ''.join(map(str,[self.wm.current_workspace_num, "  ",self.wm.current_name, "^p(_RIGHT)^p(-170)", time]))
+    
     def run(self):
         while 1:
             self.update()

@@ -1,4 +1,0 @@
-# depslib dependency file v1.0
-1344273610 source:/home/micah/builds/mozzarella/main.c
-	<xcb/xcb.h>
-
