@@ -65,7 +65,7 @@ class Manager():
         
         self.do_workspaces(self.screen)
         self.scan_windows()
-        #self.logger.start()
+        self.logger.start()
 
     def scan_windows(self):
         q = self.conn.core.QueryTree(self.root.win).reply()
