@@ -77,19 +77,14 @@ class Manager():
                continue
             if state and state['state'] == icccm.State.Withdrawn:
                 continue
-            if win.fullscreen:
-                self.current_grid.set_fullscreen(win)
             eventmask = [xproto.EventMask.EnterWindow]
-            err = self.conn.core.ChangeWindowAttributesChecked(win.win, xproto.CW.EventMask, eventmask)
-            err.check()
+            self.conn.core.ChangeWindowAttributes(win.win, xproto.CW.EventMask, eventmask)
             if not win.get_wm_transient_for():
                 event.connect('DestroyNotify', win.win, self.handle_unmap_event)
                 event.connect('UnmapNotify', win.win, self.handle_unmap_event)
-            if not win.strut:
-                if win.type and atom._NET_WM_WINDOW_TYPE_DOCK not in win.type :
-                        self.win_store.add(win)
-            else:
+            if win.strut:
                 self.screen.set_strut(win.strut)
+            self.win_store.add(win)
             event.connect('EnterNotify', win.win, self.handle_enter_event)
                 
     def do_workspaces(self, screen):
@@ -300,7 +295,7 @@ def mainloop():
                 break
             event.read()
             for e in event.queue():
-                print e
+                #print e
                 w = None
                 if wm.no_window(e):
                     w = None
