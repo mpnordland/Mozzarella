@@ -3,7 +3,7 @@ import xcb.xproto as xproto
 from xpybutil import ewmh, icccm, util, event
 import atom
 
-atoms = ["_NET_WM_STATE_FULLSCREEN" , "WM_PROTOCOLS", "WM_TAKE_FOCUS", "WM_DELETE_WINDOW","_NET_WM_WINDOW_TYPE_DOCK"]
+atoms = ["_NET_WM_STATE_FULLSCREEN" , "WM_PROTOCOLS", "WM_TAKE_FOCUS", "WM_DELETE_WINDOW","_NET_WM_WINDOW_TYPE_DOCK", "_NET_WM_STATE_STICKY"]
 atom.update_atom_cache(atoms)
 
 class Window:
@@ -13,7 +13,7 @@ class Window:
         self.win = window
         self.conn = conn
         self.wm = wm
-        
+        self.workspace = self.wm.current_workspace
         #these are set later, and I
         #haven't had a problem with it yet.
         self.x = 0
@@ -31,8 +31,11 @@ class Window:
         #are we a fullscreen window ?
         net_state = self.get_net_wm_state()
         self.fullscreen = False
+        self.sticky = False
         if net_state and atom._NET_WM_STATE_FULLSCREEN in net_state:
             self.fullscreen = True
+        if net_state and atom._NET_WM_STATE_STICKY in net_state:
+            self.sticky = True
             
         #Define Default values for focus modals
         self.no_input = False
@@ -51,19 +54,12 @@ class Window:
         if protos and atom.WM_TAKE_FOCUS in protos:
             take_focus = True
         if input and take_focus:
-            print self.get_wm_name()
-            print "local_active"
             self.local_active = True
         elif input and not take_focus:
-            print self.get_wm_name()
-            print "passive"
             self.passive = True
         elif take_focus and not input:
-            print self.get_wm_name()
-            print "global_active"
             self.global_active = True
         else:
-            print "no_input"
             self.no_input = True
         
         #what kind of a window are we?
@@ -138,11 +134,12 @@ class Window:
                 event.send_event(self.win, 0,packed)
             else:
                 return
+            self.wm.current_name = self.get_wm_name()
+            self.wm.current_win = self
+            ewmh.set_active_window(self.win)
+
         except (xproto.BadMatch, xproto.BadWindow):
             return
-        self.wm.current_name = self.get_wm_name()
-        self.wm.current_win = self
-        ewmh.set_active_window(self.win)
     
     def destroy(self):
         #we need to handle WM_DELETE_window

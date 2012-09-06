@@ -1,5 +1,6 @@
 import xcb
-import xcb.xproto
+import xcb.xproto as xproto
+import atom
 
 
 class Pane():
@@ -25,58 +26,35 @@ class Pane():
             
     
 class Grid():
-    def __init__(self, screen):
-        self.windows = []
+    def __init__(self, screen, win_store):
+        self.win_store = win_store
         self.panes = []
         self.shown = False
         self.screen = screen
         self.fullscreen = False
         
-    def remove_window(self, window):
-        if not self.shown:
-            return
-        if window in self.windows:
-            self.windows.remove(window)
-        self.update()
-        
-    def add_window(self, window, pos=0):
-        if not self.shown:
-            print self.shown
-            return
-        self.windows.insert(0,window)
-        self.update()
-        
     def hide(self):
-        '''
-        This is the beginning of multiple workspaces
-        '''
-        if not self.shown:
-            return
-        for win in self.windows:
-            win.unmap()
-        self.shown = False
+        if self.shown:
+            self.shown = False
     
     def show(self):
-        if self.shown:
-            return
-        for win in self.windows:
-            win.map()
-        self.shown =True
+        if not self.shown:
+            self.shown =True
     
     def switch_windows(self, win1, win2):
         if self.fullscreen:
             return
-        
-        if win1 in self.windows and win2 in self.windows:
-            ind1 = self.windows.index(win1)
-            ind2 = self.windows.index(win2)
+        win_list = self.win_store.get_list()
+        if win1 in win_list and win2 in win_list:
+            ind1 = win_list.index(win1)
+            ind2 = win_list.index(win2)
             if ind1 == ind2:
                 return
             print "swapping windows:", win1, win2
-            self.windows.remove(win1)
-            self.windows.remove(win2)
-            self.windows.insert(ind2, win1)
-            self.windows.insert(ind1, win2)
+            win_list.remove(win1)
+            win_list.remove(win2)
+            win_list.insert(ind2, win1)
+            win_list.insert(ind1, win2)
             self.update()
     
     def set_fullscreen(self, win):
@@ -84,7 +62,6 @@ class Grid():
         y = self.screen.real_y 
         w = self.screen.real_w
         h = self.screen.real_h
-        self.windows.insert(0, win)
         pane = Pane(self, x, y, w, h, [win])
         pane.reconfigure()
         self.fullscreen = True
@@ -98,22 +75,31 @@ class Grid():
             return
         if self.fullscreen:
             return
-            
+        
+        windows = []
+        win_store_list = self.win_store.get_list()
+        for win in win_store_list:
+            try:
+                if not win.get_wm_transient_for():
+                    if not win.strut and atom._NET_WM_WINDOW_TYPE_DOCK not in win.type:
+                        if win.wm.current_workspace == win.workspace:
+                            windows.append(win)
+            except xproto.BadWindow:
+                pass
+        win_num = len(windows)
         self.panes =[]
-        win_num = len(self.windows)
-        #print "we have this many windows: ", win_num
         x = self.screen.x
         y = self.screen.y
         w = self.screen.width
         h = self.screen.height
         
         if win_num == 1:
-            pane = Pane(self, x, y, w, h, self.windows)
+            pane = Pane(self, x, y, w, h, windows)
             self.panes.append(pane)
       
         elif win_num == 2:
             w = w/2
-            for win in self.windows: 
+            for win in windows: 
                pane = Pane(self, x, y, w, h, [win])
                self.panes.append(pane)
                x = x + w
@@ -123,8 +109,8 @@ class Grid():
         elif win_num > 2:
             #print "more than 2 windows"
             pane = 0
-            for win in self.windows:
-                if win == self.windows[0]:
+            for win in windows:
+                if win == windows[0]:
                     h=h - (h/3)
                     #print "main pane has y and h:", y, h
                     pane = Pane(self, x,y, w, h, [win])

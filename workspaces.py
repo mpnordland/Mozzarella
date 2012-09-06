@@ -1,58 +1,66 @@
 import grid
 import atom
-
+import xcb.xproto as xproto
 from xpybutil import event
 
 class Workspace:
-    def __init__(self, screen):
+    def __init__(self, screen, win_store):
         self.screen = screen
-        self.grid = grid.Grid(self.screen)
+        self.grid = grid.Grid(self.screen, win_store)
         self.grid.shown = True
-        self.windows = []
+        self.win_store = win_store
         self.shown = False
-        
-    def add_window(self, win):
-        if win.fullscreen:
-            self.grid.set_fullscreen(win)
-        print win.get_wm_name(), 1
-        if not win.get_wm_transient_for():
-            print win.get_wm_name(), 2
-            if not win.strut and atom._NET_WM_WINDOW_TYPE_DOCK not in win.type:
-                    print win.get_wm_name(), 3
-                    self.windows.append(win)
-                    self.grid.add_window(win)
-            else:
-                self.screen.set_strut(win.strut)
-                self.grid.update()
-        else:
-            self.windows.append(win)
-
-    
-    def remove_window(self, win):
-        if win in self.windows:
-            if not win.strut:
-                self.windows.remove(win)
-                self.grid.remove_window(win)
-            else:
-                self.screen.remove_strut(win.strut)
-            if win.fullscreen:
-                self.grid.unset_fullscreen()
-            
-    def update_layout(self):
+        self.hidden = []
+                
+    def update(self):
+        self.screen.reset_struts()
+        self.grid.unset_fullscreen()
+        win_list = self.win_store.get_list()
+        print "Workspace.update(), we have these windows:"
+        for win in win_list:
+            if win.workspace is self:
+                try:
+                    print win.get_wm_name()
+                except xproto.BadWindow:
+                    continue
+                if win.strut:
+                    self.screen.set_strut(win.strut)
+                if win.fullscreen:
+                    self.grid.set_fullscreen(win)
         self.grid.update()
-    
+        
     def hide(self):
+        print "in old Workspace.hide():"
+        print "shown is:", self.shown
         if not self.shown:
+            print "-----Already Hidden-----"
             return
-        self.grid.hide()
-        for win in self.windows:
-            win.unmap()
+        windows = []
+        for win in self.win_store.get_list():
+            if win.workspace is self and not win.sticky:
+                try:
+                    print win.get_wm_name()
+                    win.unmap()
+                    windows.append(win)
+                except xproto.BadWindow:
+                    continue
+        self.hidden = windows
         self.shown = False
+        self.update()
+        print "-----"
     
     def show(self):
+        print "in new Workspace.show():"
+        print "shown is:", self.shown
         if self.shown:
+            print "-----Already shown-----"
             return
-        self.grid.show()
-        for win in self.windows:
-            win.map()
+        for win in self.hidden:
+            if win.workspace is self and not win.sticky:
+                print win.get_wm_name()
+                win.map()
+                self.win_store.add(win)
+        self.hidden = []
         self.shown = True
+        self.update()
+        print "-----"

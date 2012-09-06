@@ -35,3 +35,9 @@ class Screen :
         self.height = (self.height + strut['top']) + strut['bottom']
         self.width = (self.width + strut['right']) + strut['left']
         self.v_strut = False
+    
+    def reset_struts(self):
+        self.x = self.real_x
+        self.y = self.real_y
+        self.height = self.real_h
+        self.width = self.real_w
